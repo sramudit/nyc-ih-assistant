@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 from analyzer import analyze_hearing_records, reverse_engineer_fofd
 from demo_packet import build_synthetic_demo_packet
+from eval_5sigma import run_full_evaluation
 from redact_local import (
     LocalRedactor,
     build_safe_doc_stem,
@@ -20,23 +21,21 @@ st.set_page_config(
 
 st.title("⚖️ NYC Impartial Hearing Assistant")
 st.caption(
-    "Privacy-first record organizer & hearing prep assistant for pro se NYC parents. "
-    "Real PDFs are scrubbed 100% locally before Gemini 4 ever sees anonymized text."
+    "Privacy-first record organizer & parent coaching tool for NYC DOE Special Education Impartial Hearings. "
+    "Real PDFs are scrubbed 100% locally before Gemini 4 (Hydrogen + Neon + Carbon) analyzes anonymized records."
 )
 
-# Initialize session state
 defaults = {
     "redacted_docs": [],
     "audit_counts": {},
     "discovered": {},
     "demo_loaded_files": [],
     "verified_safe": False,
-    "analysis_result": None,
-    "analysis_model": "",
-    "fofd_result": None,
-    "fofd_model": "",
+    "pipeline_output": None,
+    "fofd_override": None,
     "generated_videos": {},
     "video_checks": {},
+    "eval_summary": None,
     "student_names": "",
     "parent_names": "",
     "school_names": "",
@@ -56,6 +55,30 @@ def split_csv(val: str):
     return [x.strip() for x in val.split(",") if x.strip()]
 
 
+def build_prep_markdown(pipeline_out: dict) -> str:
+    a = pipeline_out.get("analysis", {})
+    lines = ["# NYC Impartial Hearing — Parent Prep Guide\n"]
+    lines.append(f"**Overview:** {a.get('case_snapshot', '')}\n")
+    lines.append("## 1. Priority Gaps Found\n")
+    for idx, f in enumerate(a.get("priority_findings", []), start=1):
+        lines.append(f"### {idx}. [{f.get('priority')}] {f.get('title')} ({f.get('citation')})")
+        lines.append(f"- **What DOE promised/assumed:** {f.get('what_doe_promised_or_assumed')}")
+        lines.append(f"- **What records show:** {f.get('what_records_actually_show')}")
+        lines.append(f"- **Why it matters (NYC/IDEA rules):** {f.get('why_it_matters_nyc_rules')}\n")
+    lines.append("## 2. Arguments to Document & Share\n")
+    for idx, arg in enumerate(a.get("arguments_to_document", []), start=1):
+        lines.append(f"### {idx}. {arg.get('argument_title')} ({arg.get('citation')})")
+        lines.append(f"- **How to explain it:** {arg.get('plain_english_explanation')}")
+        lines.append(f"- **What to document next:** {arg.get('what_to_document_and_share')}\n")
+    oath = a.get("oath_readiness", {})
+    lines.append("## 3. NYC OATH Hearing Readiness\n")
+    lines.append(f"- **Deadlines & Notes:** {oath.get('hearing_and_disclosure_notes', '')}")
+    lines.append(f"- **Burden of Proof Reminder:** {oath.get('burden_of_proof_reminder', '')}\n")
+    for ex in oath.get("exhibit_checklist", []):
+        lines.append(f"- **{ex.get('suggested_label')}** ({ex.get('document_id')}): {ex.get('why_include')}")
+    return "\n".join(lines)
+
+
 # Sidebar: Local PII Intake Form
 with st.sidebar:
     st.header("🛡️ Local Privacy Config")
@@ -71,18 +94,18 @@ with st.sidebar:
                 st.session_state[field] = ", ".join(cfg.get(field, []))
             st.rerun()
 
-    st.session_state["student_names"] = st.text_input("Student Name(s)", value=st.session_state["student_names"], placeholder="e.g., Jordan Rivera")
-    st.session_state["parent_names"] = st.text_input("Parent / Guardian Name(s)", value=st.session_state["parent_names"], placeholder="e.g., Elena Rivera")
-    st.session_state["school_names"] = st.text_input("School Name(s)", value=st.session_state["school_names"], placeholder="e.g., P.S. 999")
+    st.session_state["student_names"] = st.text_input("Student Name(s)", value=st.session_state["student_names"], placeholder="e.g., Maya Chen")
+    st.session_state["parent_names"] = st.text_input("Parent / Guardian Name(s)", value=st.session_state["parent_names"], placeholder="e.g., Grace Chen")
+    st.session_state["school_names"] = st.text_input("School Name(s)", value=st.session_state["school_names"], placeholder="e.g., Tech High School")
     st.session_state["district_names"] = st.text_input("District / Agency", value=st.session_state["district_names"])
-    st.session_state["provider_names"] = st.text_input("Provider / Evaluator Name(s)", value=st.session_state["provider_names"], placeholder="e.g., Dr. Taylor Reed")
-    st.session_state["ids"] = st.text_input("Student / OSIS / Case IDs", value=st.session_state["ids"], placeholder="e.g., 900 123 456")
-    st.session_state["dobs"] = st.text_input("Date(s) of Birth", value=st.session_state["dobs"], placeholder="e.g., 04/12/2017")
+    st.session_state["provider_names"] = st.text_input("Provider / Evaluator Name(s)", value=st.session_state["provider_names"], placeholder="e.g., Dr. Avery Patel")
+    st.session_state["ids"] = st.text_input("Student / OSIS / Case IDs", value=st.session_state["ids"], placeholder="e.g., 901 442 817")
+    st.session_state["dobs"] = st.text_input("Date(s) of Birth", value=st.session_state["dobs"], placeholder="e.g., 04/12/2012")
     st.session_state["addresses"] = st.text_input("Street Address(es)", value=st.session_state["addresses"], placeholder="e.g., 100 Example Avenue")
     st.session_state["extra_terms"] = st.text_area(
         "Extra Words to Black Out",
         value=st.session_state["extra_terms"],
-        placeholder="Caught something in preview? Add it here, separated by commas...",
+        placeholder="Caught a typo, sibling name, or employer in preview? Add here...",
     )
 
     def build_config_dict():
@@ -99,11 +122,12 @@ with st.sidebar:
         }
 
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "1️⃣ Local Privacy Shield",
-    "2️⃣ Service Gaps & Timeline",
-    "3️⃣ Prep & Exhibit Binder",
-    "4️⃣ FOFD Lessons & Video",
+    "2️⃣ What We Found (Parent View)",
+    "3️⃣ Arguments & OATH Prep",
+    "4️⃣ Parent Briefing Video",
+    "5️⃣ 5-Sigma Reliability & Eval",
 ])
 
 # ==================== TAB 1: LOCAL PRIVACY SHIELD ====================
@@ -113,23 +137,24 @@ with tab1:
     demo_col, up_col = st.columns([1, 2])
     with demo_col:
         st.markdown("**Testing / Judge Demo?**")
-        if st.button("🧪 Load Synthetic NYC Demo Packet", width="stretch"):
+        if st.button("🧪 Load Realistic NYC Demo Packet", width="stretch"):
             st.session_state["demo_loaded_files"] = build_synthetic_demo_packet()
-            st.session_state["student_names"] = "Jordan Rivera"
-            st.session_state["parent_names"] = "Elena Rivera"
-            st.session_state["school_names"] = "P.S. 999"
+            st.session_state["student_names"] = "Maya Chen"
+            st.session_state["parent_names"] = "Grace Chen"
+            st.session_state["school_names"] = "Tech High School"
             st.session_state["district_names"] = "District 99, NYC DOE"
-            st.session_state["provider_names"] = "Dr. Taylor Reed"
-            st.session_state["ids"] = "900 123 456, 900123456"
-            st.session_state["dobs"] = "04/12/2017"
+            st.session_state["provider_names"] = "Dr. Avery Patel"
+            st.session_state["ids"] = "901 442 817, 901442817, 311994"
+            st.session_state["dobs"] = "04/12/2012"
             st.session_state["addresses"] = "100 Example Avenue"
             st.session_state["redacted_docs"] = []
-            st.session_state["analysis_result"] = None
+            st.session_state["pipeline_output"] = None
+            st.session_state["generated_videos"] = {}
             st.rerun()
 
     with up_col:
         uploaded_files = st.file_uploader(
-            "Or upload your own IEP, Evaluation, Service Logs, or Transcript PDFs",
+            "Or upload your own IEP, Neuropsych, Service Logs, or Transcript PDFs",
             type=["pdf"],
             accept_multiple_files=True,
         )
@@ -139,7 +164,7 @@ with tab1:
     else:
         active_files = st.session_state["demo_loaded_files"]
         if active_files:
-            st.info(f"🧪 Synthetic Demo Packet loaded ({len(active_files)} fake NYC DOE PDFs ready to scrub).")
+            st.info(f"🧪 Synthetic NYC Demo Packet loaded ({len(active_files)} realistic fake PDFs ready to scrub).")
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -162,7 +187,7 @@ with tab1:
 
     with col_b:
         if st.button("🛡️ Run Local Scrubber & Black Out PDFs", type="primary", disabled=not active_files, width="stretch"):
-            with st.spinner("Scrubbing text (with local OCR for scans) and burning black redaction boxes..."):
+            with st.spinner("Scrubbing text (with RapidOCR for scans) and burning permanent black boxes..."):
                 redactor = LocalRedactor(config_dict=build_config_dict())
                 docs_out = []
                 for idx, (fname, fbytes) in enumerate(active_files, start=1):
@@ -227,105 +252,134 @@ with tab1:
         )
 
         if st.button(
-            "🚀 Analyze Scrubbed Records with Gemini 4",
+            "🚀 Analyze with 3-Model Gemini 4 Pipeline (Hydrogen + Neon + Carbon)",
             type="primary",
             disabled=not st.session_state["verified_safe"],
         ):
             combined_text = "\n\n".join(d["scrubbed_text"] for d in st.session_state["redacted_docs"])
-            with st.spinner("Running Gemini 4 Neon analysis on scrubbed text..."):
-                res, used_model = analyze_hearing_records(combined_text)
-                st.session_state["analysis_result"] = res
-                st.session_state["analysis_model"] = used_model
-            st.success(f"Analysis complete using `{used_model}`! Open Tabs 2 & 3 to review.")
+            # Send key blacked-out PDF page images directly to Gemini 4 Hydrogen for visual checkbox/table inspection
+            key_images = []
+            for d in st.session_state["redacted_docs"]:
+                for p_idx in range(min(d["page_count"], 2)):
+                    if len(key_images) < 6:
+                        key_images.append((
+                            f"{d['doc_id']} | PAGE {p_idx + 1}",
+                            render_pdf_page_png(d["blacked_pdf"], p_idx),
+                        ))
+            with st.spinner("Running Hydrogen (Visual PDF) -> Neon (NYC DOE Coach) -> Carbon (5-Sigma Audit)..."):
+                out = analyze_hearing_records(combined_text, page_images=key_images)
+                st.session_state["pipeline_output"] = out
+                st.session_state["generated_videos"] = {}
+            st.success("Analysis & 5-Sigma Citation Audit complete! Open Tabs 2, 3, and 4.")
 
 
-# ==================== TAB 2: SERVICE GAPS & TIMELINE ====================
+# ==================== TAB 2: WHAT WE FOUND (PARENT VIEW) ====================
 with tab2:
-    res = st.session_state.get("analysis_result")
-    if not res:
+    out = st.session_state.get("pipeline_output")
+    if not out:
         st.info("Scrub and analyze records in Tab 1 first.")
     else:
-        st.caption(f"Analyzed with `{st.session_state['analysis_model']}` • Every item grounded in PDF page citations.")
-        gaps = res.get("service_gaps", [])
-        high_gaps = sum(1 for g in gaps if g.get("severity") == "High")
+        analysis = out["analysis"]
+        carbon = out["carbon_audit"]
+        tel = out["telemetry"]
+        visual = out["visual_findings"]
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Documents Triaged", len(res.get("documents_detected", [])))
-        m2.metric("Services Audited", len(gaps))
-        m3.metric("High-Severity Gaps", high_gaps)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Priority Gaps Found", len(analysis.get("priority_findings", [])))
+        m2.metric("Visual Checks (Hydrogen)", f"{tel.get('hydrogen_visual_s', 0)}s")
+        m3.metric("NYC DOE Coach (Neon)", f"{tel.get('neon_reasoning_s', 0)}s")
+        m4.metric("5-Sigma Citation Score (Carbon)", f"{carbon.get('verification_score_pct', 0)}%")
 
-        st.subheader("Mandate vs. Delivery Audit")
-        st.dataframe(gaps, width="stretch")
+        st.info(f"**Plain-English Overview:** {analysis.get('case_snapshot', '')}")
 
-        st.subheader("Record Chronology")
-        st.dataframe(res.get("chronology", []), width="stretch")
+        with st.expander(f"🔎 Carbon 5-Sigma Auditor Verdict: {carbon.get('auditor_summary', '')}"):
+            if carbon.get("flagged_discrepancies"):
+                for flag in carbon["flagged_discrepancies"]:
+                    st.warning(f"**{flag.get('claim_title')}:** {flag.get('issue')}")
+            else:
+                st.success("All claims and page citations verified cleanly against source records.")
 
-        st.subheader("Procedural & FAPE Checks")
-        st.dataframe(res.get("procedural_and_fape_checks", []), width="stretch")
+        if visual.get("checkbox_contradictions"):
+            with st.expander("👁️ Visual Contradictions Caught on Page Images (Gemini 4 Hydrogen)", expanded=True):
+                for vc in visual["checkbox_contradictions"]:
+                    st.warning(f"**{vc.get('citation')}:** {vc.get('description')}")
+
+        st.subheader("What We Found in Your Records")
+        for item in analysis.get("priority_findings", []):
+            badge = "🔴 HIGH PRIORITY" if item.get("priority") == "High" else "🟡 WATCHOUT"
+            with st.container(border=True):
+                st.markdown(f"### {badge} — {item.get('title')}")
+                st.caption(f"Source Citation: `{item.get('citation')}`")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown(f"**What the DOE promised / assumed:**\n\n{item.get('what_doe_promised_or_assumed')}")
+                with c2:
+                    st.markdown(f"**What the records actually show:**\n\n{item.get('what_records_actually_show')}")
+                st.markdown(f"**Why this matters under NYC DOE / IDEA rules:** {item.get('why_it_matters_nyc_rules')}")
 
 
-# ==================== TAB 3: PREP & EXHIBIT BINDER ====================
+# ==================== TAB 3: ARGUMENTS & OATH PREP ====================
 with tab3:
-    res = st.session_state.get("analysis_result")
-    if not res:
+    out = st.session_state.get("pipeline_output")
+    if not out:
         st.info("Scrub and analyze records in Tab 1 first.")
     else:
+        analysis = out["analysis"]
         st.warning(
-            "⚖️ **Self-Help Organization Only (Not Legal Advice):** These factual checklists and "
-            "clarifying questions help organize records for a parent, advocate, or attorney."
+            "⚖️ **Self-Help Preparation Tool (Not Legal Advice):** Organized to help you, an advocate, "
+            "or a clinic see the factual points and gather the exact supporting proof."
         )
-        st.subheader("Documents & Suggested Exhibit Index")
-        st.dataframe(res.get("documents_detected", []), width="stretch")
-
-        st.subheader("Fact-Clarifying Questions & Prep Prompts")
-        st.dataframe(res.get("upl_safe_prep_prompts", []), width="stretch")
 
         st.download_button(
-            "⬇️ Download Full Prep Report (JSON)",
-            data=json.dumps(res, indent=2),
-            file_name="hearing_prep_report.json",
-            mime="application/json",
+            "⬇️ Download Plain-English Parent Prep Guide (.md)",
+            data=build_prep_markdown(out),
+            file_name="parent_hearing_prep_guide.md",
+            mime="text/markdown",
+            type="primary",
         )
 
+        st.subheader("Arguments & Points to Document and Share")
+        for idx, arg in enumerate(analysis.get("arguments_to_document", []), start=1):
+            with st.container(border=True):
+                st.markdown(f"### {idx}. {arg.get('argument_title')}")
+                st.caption(f"Source Citation: `{arg.get('citation')}`")
+                st.markdown(f"**How to explain this simply:** {arg.get('plain_english_explanation')}")
+                st.success(f"📋 **What to document & gather next:** {arg.get('what_to_document_and_share')}")
 
-# ==================== TAB 4: FOFD LESSONS & VIDEO ====================
+        st.subheader("NYC OATH Pre-Hearing Readiness Checklist")
+        oath = analysis.get("oath_readiness", {})
+        with st.container(border=True):
+            st.markdown(f"**Deadlines & Procedural Notes:** {oath.get('hearing_and_disclosure_notes', '')}")
+            st.markdown(f"**Burden of Proof Reminder:** {oath.get('burden_of_proof_reminder', '')}")
+            st.markdown("**Suggested Exhibit Binder Order:**")
+            for ex in oath.get("exhibit_checklist", []):
+                st.checkbox(
+                    f"**{ex.get('suggested_label')}** (`{ex.get('document_id')}`) — {ex.get('why_include')}",
+                    key=f"ex_chk_{ex.get('suggested_label')}_{ex.get('document_id')}",
+                )
+
+
+# ==================== TAB 4: PARENT BRIEFING VIDEO ====================
 with tab4:
-    st.subheader("Reverse-Engineer a Past Transcript / FOFD into a Teaching Video")
+    st.subheader("Parent Briefing Video: Your Case Gaps & Arguments to Document")
     st.caption(
-        "Gemini 4 extracts what swayed the Impartial Hearing Officer; "
-        "Gemini Omni 1.2 Flash generates a narrated parent-explainer clip guided by our slide card."
+        "Turns your actual gaps and prep points into a calm, parent-level 3-scene explainer video "
+        "using Gemini Omni 1.2 Flash (v1beta), then optionally verifies accuracy with Gemini 4 Hydrogen."
     )
 
-    fofd_source = ""
-    if st.session_state["redacted_docs"]:
-        fofd_source = "\n\n".join(d["scrubbed_text"] for d in st.session_state["redacted_docs"])
-        st.info(f"Using {len(st.session_state['redacted_docs'])} scrubbed document(s) currently loaded from Tab 1.")
+    out = st.session_state.get("pipeline_output")
+    storyboard = out["analysis"].get("parent_briefing_storyboard", []) if out else []
+
+    if not storyboard:
+        st.info("Run the 3-Model Analysis in Tab 1 first to automatically build your case briefing storyboard.")
     else:
-        fofd_source = st.text_area("Or paste ALREADY-SCRUBBED Transcript / FOFD text here", height=200)
-
-    if st.button("🧠 Extract IHO Insights & Video Storyboard (Gemini 4)", type="primary", disabled=not fofd_source.strip()):
-        with st.spinner("Reverse-engineering what the IHO relied upon..."):
-            fofd_res, used_model = reverse_engineer_fofd(fofd_source)
-            st.session_state["fofd_result"] = fofd_res
-            st.session_state["fofd_model"] = used_model
-            st.session_state["generated_videos"] = {}
-
-    if st.session_state.get("fofd_result"):
-        fofd = st.session_state["fofd_result"]
-        st.success(f"Storyboard generated with `{st.session_state['fofd_model']}`")
-        st.markdown(f"**Outcome Summary:** {fofd.get('case_outcome_summary', '')}")
-
-        st.markdown("### What the IHO Found Decisive")
-        st.dataframe(fofd.get("what_the_iho_found_decisive", []), width="stretch")
-
-        st.markdown("### Teaching Video Studio (Gemini Omni 1.2 Flash)")
         c1, c2 = st.columns(2)
         with c1:
             vid_res = st.selectbox("Video Resolution (use 360p for fast drafts)", ["360p", "720p"], index=0)
         with c2:
             vid_dur = st.slider("Clip Duration (seconds)", min_value=5, max_value=15, value=8)
 
-        for scene in fofd.get("video_storyboard", []):
+        for scene in storyboard:
             s_num = scene.get("scene_number", 1)
             with st.expander(f"Scene {s_num}: {scene.get('slide_title')}", expanded=True):
                 left, right = st.columns([1, 1])
@@ -333,8 +387,8 @@ with tab4:
                     slide_preview = render_slide_card_png(scene)
                     st.image(slide_preview, caption="Reference Slide Card sent to Omni 1.2 Flash", width="stretch")
                 with right:
-                    st.write(f"**Takeaway:** {scene.get('key_takeaway')}")
-                    st.write(f"**Narration:** {scene.get('narration_script')}")
+                    st.write(f"**Key Point:** {scene.get('key_takeaway')}")
+                    st.write(f"**Parent Narration:** {scene.get('narration_script')}")
                     st.caption(f"Citation: {scene.get('evidence_citation')}")
 
                     if st.button(f"🎬 Generate Scene {s_num} Video (Omni 1.2 Flash)", key=f"gen_vid_{s_num}", type="primary"):
@@ -353,16 +407,57 @@ with tab4:
                         st.download_button(
                             f"⬇️ Download Scene {s_num} (.mp4)",
                             data=vid_bytes,
-                            file_name=f"iho_lesson_scene_{s_num}.mp4",
+                            file_name=f"parent_briefing_scene_{s_num}.mp4",
                             mime="video/mp4",
                             key=f"dl_vid_{s_num}",
                         )
-                        if st.button(f"🔎 Verify Clip Accuracy with Gemini 4", key=f"chk_vid_{s_num}"):
+                        if st.button(f"🔎 Verify Clip Accuracy with Gemini 4 Hydrogen", key=f"chk_vid_{s_num}"):
                             with st.spinner("Gemini 4 Hydrogen watching clip..."):
                                 check_text = verify_video_with_gemini4(
-                                    vid_bytes, fofd.get("case_outcome_summary", "")
+                                    vid_bytes, scene.get("key_takeaway", "")
                                 )
                                 st.session_state["video_checks"][s_num] = check_text
 
                         if s_num in st.session_state["video_checks"]:
                             st.info(st.session_state["video_checks"][s_num])
+
+    with st.expander("Optional: Reverse-Engineer a Separate Past FOFD / Transcript"):
+        fofd_txt = st.text_area("Paste ALREADY-SCRUBBED past FOFD text here", height=150)
+        if st.button("Extract IHO Lessons from Past FOFD", disabled=not fofd_txt.strip()):
+            with st.spinner("Analyzing past FOFD with Gemini 4 Neon..."):
+                fofd_res, _ = reverse_engineer_fofd(fofd_txt)
+                st.session_state["fofd_override"] = fofd_res
+        if st.session_state.get("fofd_override"):
+            st.write(st.session_state["fofd_override"].get("case_outcome_summary", ""))
+            st.json(st.session_state["fofd_override"].get("what_the_iho_found_decisive", []))
+
+
+# ==================== TAB 5: 5-SIGMA RELIABILITY & EVAL ====================
+with tab5:
+    st.subheader("5-Sigma Engineering: Real-World Failures Caught & Baseline Benchmark")
+    st.markdown(
+        """
+**Multi-Model Architecture (Each Gemini 4 Model Has a Clear Job):**
+1. **Local Privacy Layer (`PyMuPDF` + `spaCy` + `RapidOCR`):** Strips minor PII, spaced OSIS IDs (`xxx xxx xxx`), court line-split case numbers, and phonetic spellings (`R-A-M as in...`) *before* cloud calls.
+2. **`gemini-4-hydrogen` (Multimodal PDF & Video Inspector):** Reads blacked-out PDF page images directly to spot visual checkbox contradictions (e.g., `BIP: Yes` vs `No`) and audits generated video clips.
+3. **`gemini-4-neon` (NYC DOE SOPM / Part 200 Coach):** Reconciles mandates vs. logs and translates findings into parent-level explanations and arguments to document.
+4. **`gemini-4-carbon` (5-Sigma Citation Auditor):** Cross-checks every claim against source pages to catch hallucinations.
+5. **`gemini-omni-1.2-flash` (`v1beta`):** Generates narrated parent-briefing video clips from reference slide cards.
+"""
+    )
+
+    if st.button("📊 Run Live 5-Sigma Evaluation (Baseline vs. Multi-Model System)", type="primary"):
+        with st.spinner("Running adversarial PII suite, single-model baseline, and 3-model pipeline..."):
+            st.session_state["eval_summary"] = run_full_evaluation(include_local_unseen=True)
+
+    eval_res = st.session_state.get("eval_summary")
+    if not eval_res and Path("eval_results.json").exists():
+        eval_res = json.loads(Path("eval_results.json").read_text(encoding="utf-8"))
+
+    if eval_res:
+        st.success(f"Evaluated on: **{eval_res.get('evaluated_on')}**")
+        st.table(eval_res.get("comparison", []))
+        st.caption(f"Carbon Auditor Verdict: {eval_res.get('carbon_auditor_verdict', '')}")
+
+        with st.expander("Adversarial Scrubber Stress-Test Details (Real Transcript/IEP Edge Cases)"):
+            st.table(eval_res.get("scrubber_stress_test", {}).get("details", []))
