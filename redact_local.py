@@ -23,6 +23,8 @@ SAFE_DOC_TYPE_TOKENS = {
     "sesis", "amendment", "report", "transcript", "exhibit", "fofd"
 }
 
+TITLE_SKIP = {"mr", "mrs", "ms", "miss", "dr", "prof", "jr", "sr", "ii", "iii", "iv"}
+
 
 def load_spacy_model():
     for model_name in ("en_core_web_md", "en_core_web_sm"):
@@ -36,7 +38,7 @@ def load_spacy_model():
 
 
 def build_safe_doc_stem(doc_id: str, original_filename: str) -> str:
-    """Create a leak-proof filename like DOC_001_IEP_PROGRESS using only safe keywords."""
+    """Create a leak-proof filename like DOC_001_TRANSCRIPT using only safe keywords."""
     stem = Path(original_filename).stem.lower()
     tokens = re.split(r"[^a-z0-9]+", stem)
     safe_hits = []
@@ -69,7 +71,7 @@ class LocalRedactor:
         self.person_map = {}
         self.audit_counts = {}
 
-        # Layer 1: Exact blocklist
+        # Layer 1: Exact blocklist + auto-split & spelled-out transcript catchers
         self.blocklist_rules = []
         category_tags = {
             "student_names": "[STUDENT]",
@@ -83,9 +85,27 @@ class LocalRedactor:
         }
 
         for key, tag in category_tags.items():
-            entries = self.config.get(key, [])
-            for item in sorted(entries, key=len, reverse=True):
-                item = item.strip()
+            entries = list(self.config.get(key, []))
+
+            # For student & parent names, also add standalone first/last tokens
+            expanded_entries = list(entries)
+            if key in ("student_names", "parent_names"):
+                for item in entries:
+                    for part in re.split(r"[\s\-]+", item.strip()):
+                        clean_part = re.sub(r"[^A-Za-z]", "", part)
+                        if len(clean_part) >= 3 and clean_part.lower() not in TITLE_SKIP:
+                            expanded_entries.append(clean_part)
+
+            # Deduplicate preserving longest-first order
+            seen = set()
+            unique_entries = []
+            for item in sorted(expanded_entries, key=len, reverse=True):
+                norm = item.strip().lower()
+                if norm and norm not in seen:
+                    seen.add(norm)
+                    unique_entries.append(item.strip())
+
+            for item in unique_entries:
                 if len(item) >= 2:
                     parts = item.split()
                     joined = r"[\s_]+".join(re.escape(p) for p in parts)
@@ -94,6 +114,15 @@ class LocalRedactor:
                         re.IGNORECASE,
                     )
                     self.blocklist_rules.append((pattern, tag, key))
+
+                # Catch spelled-out letters in transcripts (e.g., S-M-I-T-H or S M I T H)
+                if key in ("student_names", "parent_names") and item.isalpha() and len(item) >= 3:
+                    spelled = r"[\s\-.,/]+".join(re.escape(ch) for ch in item)
+                    spelled_pattern = re.compile(
+                        rf"(?<![A-Za-z0-9]){spelled}(?![A-Za-z0-9])",
+                        re.IGNORECASE,
+                    )
+                    self.blocklist_rules.append((spelled_pattern, tag, f"{key}_spelled"))
 
         # Layer 2: Special-Ed & PII Regexes (preserves service/IEP dates!)
         self.regex_rules = [
@@ -107,12 +136,23 @@ class LocalRedactor:
             ),
             (
                 re.compile(
-                    r"(?i)\b(osis|student\s*id|id\s*#|case\s*(?:no\.?|number|#)|"
-                    r"ih\s*(?:case\s*)?#?|docket\s*(?:no\.?|#))\s*[:#\-]?\s*([A-Z0-9\-]{5,20})"
+                    r"(?i)\b(osis|nyc\s*(?:student\s*)?id(?:\s*(?:no\.?|number|#))?|"
+                    r"nysed\s*id|sesis\s*id|student\s*id|id\s*(?:no\.?|number|#)|"
+                    r"oath\s*(?:case|index|docket)?\s*(?:no\.?|number|#)?|"
+                    r"case\s*(?:no\.?|number|#)|ih\s*(?:case\s*)?#?|"
+                    r"docket\s*(?:no\.?|number|#)|file\s*(?:no\.?|number|#)|"
+                    r"medicaid\s*(?:id|#|no\.?)?|cin)\s*[:#\-]?\s*([A-Z0-9\-]{5,20})"
                 ),
                 r"\1: [REDACTED_ID]",
                 "regex_id",
             ),
+           # Catch standalone 9-digit NYC OSIS / NYC IDs (123456789, 123 456 789, or 123-456-789)
+            (
+                re.compile(r"(?<!\d)\d{3}[ \t\-]?\d{3}[ \t\-]?\d{3}(?!\d)"),
+                "[REDACTED_ID]",
+                "regex_nyc_9digit_id",
+            ),
+            
             (
                 re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
                 "[REDACTED_SSN]",

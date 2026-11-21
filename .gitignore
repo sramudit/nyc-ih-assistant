@@ -247,3 +247,6 @@ generated_videos/
 venv/
 .DS_Store
 Thumbs.db
+
+# --- INTERNAL NOTES ---
+notes/
