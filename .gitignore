@@ -221,3 +221,29 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- CRITICAL PRIVACY RULES (NEVER COMMIT REAL RECORDS) ---
+pii_config.json
+raw_pdfs/
+redacted_output/
+*_REDACTED.txt
+_LOCAL_AUDIT_DO_NOT_SHARE.json
+*.pdf
+*.docx
+generated_videos/
+*.mp4
+*.mp3
+*.wav
+
+# --- SECRETS & API KEYS ---
+.env
+.env.*
+*credentials*.json
+*service-account*.json
+.streamlit/secrets.toml
+
+# --- LOCAL ENVIRONMENT & OS ---
+.venv/
+venv/
+.DS_Store
+Thumbs.db
