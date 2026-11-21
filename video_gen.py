@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 from PIL import Image, ImageDraw, ImageFont
 
 load_dotenv()
@@ -15,7 +16,10 @@ def _get_client() -> genai.Client:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("Missing GEMINI_API_KEY in .env file.")
-    return genai.Client(api_key=api_key)
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(api_version="v1beta", timeout=180_000),
+    )
 
 
 def render_slide_card_png(scene: Dict) -> bytes:
