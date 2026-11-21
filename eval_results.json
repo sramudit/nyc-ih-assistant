@@ -1,0 +1,57 @@
+{
+  "evaluated_on": "Local Unseen Redacted Docs (2 real files, metrics-only)",
+  "scrubber_stress_test": {
+    "total_cases": 4,
+    "passed_cases": 4,
+    "pii_block_rate_pct": 100.0,
+    "details": [
+      {
+        "test_case": "Phonetic transcript spelling",
+        "passed": true,
+        "leaks_found": [],
+        "scrubbed_preview": "MS. [PARENT]: My name is [PARENT], [SPELLED_NAME_REDACTED]."
+      },
+      {
+        "test_case": "Court transcript line-number split Case ID",
+        "passed": true,
+        "leaks_found": [],
+        "scrubbed_preview": " 6  conference regarding student, case  7  number: [REDACTED_ID]."
+      },
+      {
+        "test_case": "Spaced 9-digit NYC OSIS ID",
+        "passed": true,
+        "leaks_found": [],
+        "scrubbed_preview": "STUDENT NYC ID: [REDACTED_ID] | School: [SCHOOL]"
+      },
+      {
+        "test_case": "ALL-CAPS court reporter signature",
+        "passed": true,
+        "leaks_found": [],
+        "scrubbed_preview": "Certified true copy. [PERSON_1] July 20, 2026"
+      }
+    ]
+  },
+  "comparison": [
+    {
+      "Metric": "PII Leak Prevention (Stress Suite)",
+      "Baseline (Raw Text / No Local Scrubber)": "0.0% (Raw PII sent to cloud)",
+      "5-Sigma Pipeline (Local 3-Layer + OCR)": "100.0%"
+    },
+    {
+      "Metric": "Visual Checkbox & Grid Contradictions Caught",
+      "Baseline (Single Text-Only Model)": "0 (Blind to layout/checkboxes)",
+      "5-Sigma Pipeline (Hydrogen Visual + Neon)": "0 caught visually"
+    },
+    {
+      "Metric": "Citation Grounding / Verification Score",
+      "Baseline (Single Model Unaudited)": "100.0% format match (unaudited)",
+      "5-Sigma Pipeline (Carbon Auditor)": "33% verified"
+    },
+    {
+      "Metric": "Total Runtime",
+      "Baseline (Single Model)": "11.5s",
+      "5-Sigma Pipeline (3 Models)": "59.4s"
+    }
+  ],
+  "carbon_auditor_verdict": "All underlying facts, dates, dollar amounts ($6,500 and $360/hr), IQ/academic scores, and hour counts accurately reflect the scrubbed records without fabrication. However, the draft relies on single-page citations for multi-page, multi-document claims, resulting in widespread citation omissions across all six items."
+}

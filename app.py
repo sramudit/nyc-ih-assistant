@@ -1,7 +1,12 @@
 import json
 from pathlib import Path
 import streamlit as st
-from analyzer import analyze_hearing_records, reverse_engineer_fofd
+from analyzer import (
+    analyze_hearing_records,
+    generate_3min_guide_script,
+    generate_omni_storyboard_beats,
+    reverse_engineer_fofd,
+)
 from demo_packet import build_synthetic_demo_packet
 from eval_5sigma import run_full_evaluation
 from redact_local import (
@@ -11,7 +16,12 @@ from redact_local import (
     redact_pdf_with_visuals,
     render_pdf_page_png,
 )
-from video_gen import generate_teaching_clip, render_slide_card_png, verify_video_with_gemini4
+from video_gen import (
+    build_full_3min_guide,
+    build_stitched_omni_video,
+    generate_teaching_clip,
+    verify_video_with_gemini4,
+)
 
 st.set_page_config(
     page_title="NYC Impartial Hearing Assistant",
@@ -22,7 +32,7 @@ st.set_page_config(
 st.title("⚖️ NYC Impartial Hearing Assistant")
 st.caption(
     "Privacy-first record organizer & parent coaching tool for NYC DOE Special Education Impartial Hearings. "
-    "Real PDFs are scrubbed 100% locally before Gemini 4 (Hydrogen + Neon + Carbon) analyzes anonymized records."
+    "Real PDFs are scrubbed 100% locally before Gemini Decisions API & Gemini 4 analyze anonymized records."
 )
 
 defaults = {
@@ -45,6 +55,11 @@ defaults = {
     "dobs": "",
     "addresses": "",
     "extra_terms": "",
+    "full_3min_video": None,
+    "segment_videos": [],
+    "full_3min_check": "",
+    "omni_stitched_video": None,
+    "omni_stitched_check": "",
 }
 for key, default in defaults.items():
     if key not in st.session_state:
@@ -82,7 +97,7 @@ def build_prep_markdown(pipeline_out: dict) -> str:
 # Sidebar: Local PII Intake Form
 with st.sidebar:
     st.header("🛡️ Local Privacy Config")
-    st.caption("Stays strictly on your computer. Separate multiple items with commas.")
+    st.caption("Just type what you know below (no file needed) — stays strictly on your computer.")
 
     if Path("pii_config.json").exists():
         if st.button("📂 Load My Local pii_config.json", width="stretch"):
@@ -121,6 +136,12 @@ with st.sidebar:
             "extra_terms": split_csv(st.session_state["extra_terms"]),
         }
 
+    if st.button("💾 Save Entries Locally for Next Time", width="stretch"):
+        Path("pii_config.json").write_text(
+            json.dumps(build_config_dict(), indent=2), encoding="utf-8"
+        )
+        st.success("Saved privately on your computer!")
+
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "1️⃣ Local Privacy Shield",
@@ -150,6 +171,8 @@ with tab1:
             st.session_state["redacted_docs"] = []
             st.session_state["pipeline_output"] = None
             st.session_state["generated_videos"] = {}
+            st.session_state["omni_stitched_video"] = None
+            st.session_state["full_3min_video"] = None
             st.rerun()
 
     with up_col:
@@ -233,8 +256,9 @@ with tab1:
         left_col, right_col = st.columns(2)
         with left_col:
             st.markdown("**Blacked-Out PDF View**")
-            png_bytes = render_pdf_page_png(selected_doc["blacked_pdf"], page_num - 1)
-            st.image(png_bytes, width="stretch")
+            with st.container(height=440):
+                png_bytes = render_pdf_page_png(selected_doc["blacked_pdf"], page_num - 1)
+                st.image(png_bytes, width="stretch")
 
         with right_col:
             st.markdown("**Anonymized Text Sent to Gemini 4**")
@@ -243,7 +267,7 @@ with tab1:
                 (p for p in pages_split if p.startswith(f"{page_num}")),
                 selected_doc["scrubbed_text"][:4000],
             )
-            st.text_area("Scrubbed page text", value=matching_page, height=580, label_visibility="collapsed")
+            st.text_area("Scrubbed page text", value=matching_page, height=440, label_visibility="collapsed")
 
         st.divider()
         st.session_state["verified_safe"] = st.checkbox(
@@ -252,12 +276,11 @@ with tab1:
         )
 
         if st.button(
-            "🚀 Analyze with 3-Model Gemini 4 Pipeline (Hydrogen + Neon + Carbon)",
+            "🚀 Analyze with Decisions API + 3-Model Gemini 4 Pipeline",
             type="primary",
             disabled=not st.session_state["verified_safe"],
         ):
             combined_text = "\n\n".join(d["scrubbed_text"] for d in st.session_state["redacted_docs"])
-            # Send key blacked-out PDF page images directly to Gemini 4 Hydrogen for visual checkbox/table inspection
             key_images = []
             for d in st.session_state["redacted_docs"]:
                 for p_idx in range(min(d["page_count"], 2)):
@@ -266,10 +289,12 @@ with tab1:
                             f"{d['doc_id']} | PAGE {p_idx + 1}",
                             render_pdf_page_png(d["blacked_pdf"], p_idx),
                         ))
-            with st.spinner("Running Hydrogen (Visual PDF) -> Neon (NYC DOE Coach) -> Carbon (5-Sigma Audit)..."):
+            with st.spinner("Running Decisions API -> Hydrogen (Visual PDF) -> Neon (Coach) -> Carbon (5-Sigma Audit)..."):
                 out = analyze_hearing_records(combined_text, page_images=key_images)
                 st.session_state["pipeline_output"] = out
                 st.session_state["generated_videos"] = {}
+                st.session_state["omni_stitched_video"] = None
+                st.session_state["full_3min_video"] = None
             st.success("Analysis & 5-Sigma Citation Audit complete! Open Tabs 2, 3, and 4.")
 
 
@@ -286,11 +311,22 @@ with tab2:
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Priority Gaps Found", len(analysis.get("priority_findings", [])))
-        m2.metric("Visual Checks (Hydrogen)", f"{tel.get('hydrogen_visual_s', 0)}s")
+        m2.metric("Decisions + Visual", f"{round(tel.get('decisions_api_s', 0) + tel.get('hydrogen_visual_s', 0), 1)}s")
         m3.metric("NYC DOE Coach (Neon)", f"{tel.get('neon_reasoning_s', 0)}s")
         m4.metric("5-Sigma Citation Score (Carbon)", f"{carbon.get('verification_score_pct', 0)}%")
 
         st.info(f"**Plain-English Overview:** {analysis.get('case_snapshot', '')}")
+
+        dec = out.get("decisions_triage")
+        if dec:
+            with st.container(border=True):
+                st.markdown("#### 🧭 Gemini Decisions API Triage (`gemini-decision-1` on `v1alpha`)")
+                d1, d2, d3 = st.columns(3)
+                d1.metric("Escalation Track", dec["escalation_track"].replace("_", " ").title(), f"{dec['escalation_confidence_pct']}% conf")
+                d2.metric("Calibrated FAPE Risk", f"{dec['fape_risk_score']} / 3.00", f"{dec['fape_risk_confidence_pct']}% conf")
+                d3.metric("Part 200 Trigger", dec["part_200_trigger"].replace("_", " ").title(), f"{dec['part_200_confidence_pct']}% conf")
+                with st.expander("View Per-Document Decisions API Routing & Calibrated Probabilities"):
+                    st.table(dec.get("document_routes", []))
 
         with st.expander(f"🔎 Carbon 5-Sigma Auditor Verdict: {carbon.get('auditor_summary', '')}"):
             if carbon.get("flagged_discrepancies"):
@@ -363,73 +399,103 @@ with tab3:
 with tab4:
     st.subheader("Parent Briefing Video: Your Case Gaps & Arguments to Document")
     st.caption(
-        "Turns your actual gaps and prep points into a calm, parent-level 3-scene explainer video "
-        "using Gemini Omni 1.2 Flash (v1beta), then optionally verifies accuracy with Gemini 4 Hydrogen."
+        "Generates an animated parent-level explainer video using Gemini Omni 1.2 Flash (v1beta) "
+        "guided by clean reference cards, verified for accuracy by Gemini 4 Hydrogen."
     )
 
     out = st.session_state.get("pipeline_output")
-    storyboard = out["analysis"].get("parent_briefing_storyboard", []) if out else []
-
-    if not storyboard:
-        st.info("Run the 3-Model Analysis in Tab 1 first to automatically build your case briefing storyboard.")
+    if not out:
+        st.info("Run the Analysis in Tab 1 first.")
     else:
-        c1, c2 = st.columns(2)
-        with c1:
-            vid_res = st.selectbox("Video Resolution (use 360p for fast drafts)", ["360p", "720p"], index=0)
-        with c2:
-            vid_dur = st.slider("Clip Duration (seconds)", min_value=5, max_value=15, value=8)
+        st.markdown("### ✨ Option A: Pure Gemini Omni 1.2 Flash Multi-Clip Stitcher")
+        o_col1, o_col2 = st.columns(2)
+        with o_col1:
+            num_omni_clips = st.selectbox(
+                "Number of 14s Omni Clips to Stitch",
+                [4, 6, 9, 12],
+                index=0,
+                format_func=lambda n: f"{n} clips (~{round(n * 14 / 60, 1)} min)",
+            )
+        with o_col2:
+            omni_stitch_res = st.selectbox("Stitch Resolution", ["360p", "720p"], index=0, key="omni_stitch_res")
 
-        for scene in storyboard:
-            s_num = scene.get("scene_number", 1)
-            with st.expander(f"Scene {s_num}: {scene.get('slide_title')}", expanded=True):
-                left, right = st.columns([1, 1])
-                with left:
-                    slide_preview = render_slide_card_png(scene)
-                    st.image(slide_preview, caption="Reference Slide Card sent to Omni 1.2 Flash", width="stretch")
-                with right:
-                    st.write(f"**Key Point:** {scene.get('key_takeaway')}")
-                    st.write(f"**Parent Narration:** {scene.get('narration_script')}")
-                    st.caption(f"Citation: {scene.get('evidence_citation')}")
+        if st.button(f"🎬 Generate & Stitch {num_omni_clips} Omni 1.2 Flash Clips", type="primary"):
+            status_omni = st.empty()
+            try:
+                status_omni.info(f"Drafting {num_omni_clips} crisp 14s visual beats with Gemini 4 Neon...")
+                beats = generate_omni_storyboard_beats(out["analysis"], num_clips=num_omni_clips)
+                stitched_mp4, _ = build_stitched_omni_video(
+                    beats,
+                    resolution=omni_stitch_res,
+                    duration_seconds=14,
+                    progress_cb=lambda msg: status_omni.info(msg),
+                )
+                st.session_state["omni_stitched_video"] = stitched_mp4
+                st.session_state["omni_stitched_check"] = ""
+                status_omni.success(f"✅ Stitched {len(beats)} Gemini Omni 1.2 Flash clips!")
+            except Exception as exc:
+                status_omni.error(f"Omni stitch failed: {exc}")
 
-                    if st.button(f"🎬 Generate Scene {s_num} Video (Omni 1.2 Flash)", key=f"gen_vid_{s_num}", type="primary"):
-                        with st.spinner(f"Rendering Scene {s_num} via gemini-omni-1.2-flash ({vid_res}, {vid_dur}s)..."):
-                            try:
-                                vid_bytes, _inter_id, _ = generate_teaching_clip(
-                                    scene, resolution=vid_res, duration_seconds=vid_dur
-                                )
-                                st.session_state["generated_videos"][s_num] = vid_bytes
-                            except Exception as exc:
-                                st.error(f"Video generation error: {exc}")
-
-                    if s_num in st.session_state["generated_videos"]:
-                        vid_bytes = st.session_state["generated_videos"][s_num]
-                        st.video(vid_bytes)
-                        st.download_button(
-                            f"⬇️ Download Scene {s_num} (.mp4)",
-                            data=vid_bytes,
-                            file_name=f"parent_briefing_scene_{s_num}.mp4",
-                            mime="video/mp4",
-                            key=f"dl_vid_{s_num}",
+        if st.session_state.get("omni_stitched_video"):
+            st.video(st.session_state["omni_stitched_video"])
+            c_dl, c_ver = st.columns(2)
+            with c_dl:
+                st.download_button(
+                    "⬇️ Download Pure Omni Stitched Video (.mp4)",
+                    data=st.session_state["omni_stitched_video"],
+                    file_name="omni_parent_briefing_stitched.mp4",
+                    mime="video/mp4",
+                    type="primary",
+                )
+            with c_ver:
+                if st.button("🔎 Verify Stitched Video with Gemini 4 Hydrogen", key="chk_stitched_omni"):
+                    with st.spinner("Gemini 4 Hydrogen watching stitched video..."):
+                        st.session_state["omni_stitched_check"] = verify_video_with_gemini4(
+                            st.session_state["omni_stitched_video"],
+                            out["analysis"].get("case_snapshot", ""),
                         )
-                        if st.button(f"🔎 Verify Clip Accuracy with Gemini 4 Hydrogen", key=f"chk_vid_{s_num}"):
-                            with st.spinner("Gemini 4 Hydrogen watching clip..."):
-                                check_text = verify_video_with_gemini4(
-                                    vid_bytes, scene.get("key_takeaway", "")
-                                )
-                                st.session_state["video_checks"][s_num] = check_text
+            if st.session_state.get("omni_stitched_check"):
+                st.info(st.session_state["omni_stitched_check"])
 
-                        if s_num in st.session_state["video_checks"]:
-                            st.info(st.session_state["video_checks"][s_num])
+        st.divider()
 
-    with st.expander("Optional: Reverse-Engineer a Separate Past FOFD / Transcript"):
-        fofd_txt = st.text_area("Paste ALREADY-SCRUBBED past FOFD text here", height=150)
-        if st.button("Extract IHO Lessons from Past FOFD", disabled=not fofd_txt.strip()):
-            with st.spinner("Analyzing past FOFD with Gemini 4 Neon..."):
-                fofd_res, _ = reverse_engineer_fofd(fofd_txt)
-                st.session_state["fofd_override"] = fofd_res
-        if st.session_state.get("fofd_override"):
-            st.write(st.session_state["fofd_override"].get("case_outcome_summary", ""))
-            st.json(st.session_state["fofd_override"].get("what_the_iho_found_decisive", []))
+        with st.expander("Option B: Build Comprehensive ~3-Minute Narrated Guide (Omni Intro + 3x1-Min Segments)"):
+            include_omni = st.checkbox("Include Gemini Omni 1.2 Flash Animated Intro (~12s)", value=True)
+            if st.button("🎬 Build Comprehensive 3-Minute Overview Video"):
+                status_box = st.empty()
+                try:
+                    status_box.info("Writing 3 x 1-minute parent briefing scripts with Gemini 4 Neon...")
+                    guide_script = generate_3min_guide_script(out["analysis"])
+                    full_mp4, seg_list = build_full_3min_guide(
+                        guide_script,
+                        include_omni_intro=include_omni,
+                        omni_resolution=omni_stitch_res,
+                        progress_cb=lambda msg: status_box.info(msg),
+                    )
+                    st.session_state["full_3min_video"] = full_mp4
+                    st.session_state["segment_videos"] = seg_list
+                    status_box.success("✅ Your 3-minute Parent Briefing Video is ready!")
+                except Exception as exc:
+                    status_box.error(f"3-minute video build failed: {exc}")
+
+            if st.session_state.get("full_3min_video"):
+                st.video(st.session_state["full_3min_video"])
+                st.download_button(
+                    "⬇️ Download Full 3-Minute Guide (.mp4)",
+                    data=st.session_state["full_3min_video"],
+                    file_name="nyc_hearing_3min_parent_guide.mp4",
+                    mime="video/mp4",
+                )
+
+        with st.expander("Optional: Reverse-Engineer a Separate Past FOFD / Transcript"):
+            fofd_txt = st.text_area("Paste ALREADY-SCRUBBED past FOFD text here", height=150)
+            if st.button("Extract IHO Lessons from Past FOFD", disabled=not fofd_txt.strip()):
+                with st.spinner("Analyzing past FOFD with Gemini 4 Neon..."):
+                    fofd_res, _ = reverse_engineer_fofd(fofd_txt)
+                    st.session_state["fofd_override"] = fofd_res
+            if st.session_state.get("fofd_override"):
+                st.write(st.session_state["fofd_override"].get("case_outcome_summary", ""))
+                st.json(st.session_state["fofd_override"].get("what_the_iho_found_decisive", []))
 
 
 # ==================== TAB 5: 5-SIGMA RELIABILITY & EVAL ====================
@@ -437,17 +503,18 @@ with tab5:
     st.subheader("5-Sigma Engineering: Real-World Failures Caught & Baseline Benchmark")
     st.markdown(
         """
-**Multi-Model Architecture (Each Gemini 4 Model Has a Clear Job):**
+**Multi-Model Architecture (Each Model Has a Clear Job):**
+0. **Decisions API (`gemini-decision-1`, `v1alpha`):** Evaluates calibrated `ChoiceQuestion` & `ScoreQuestion` rubrics for document routing, Part 200 triggers, and 0–3 FAPE risk scoring.
 1. **Local Privacy Layer (`PyMuPDF` + `spaCy` + `RapidOCR`):** Strips minor PII, spaced OSIS IDs (`xxx xxx xxx`), court line-split case numbers, and phonetic spellings (`R-A-M as in...`) *before* cloud calls.
-2. **`gemini-4-hydrogen` (Multimodal PDF & Video Inspector):** Reads blacked-out PDF page images directly to spot visual checkbox contradictions (e.g., `BIP: Yes` vs `No`) and audits generated video clips.
+2. **`gemini-4-hydrogen` (Multimodal PDF & Video Inspector):** Reads blacked-out PDF page images directly to spot visual checkbox contradictions (e.g., `BIP: Yes` vs `No`) and verifies generated video clips.
 3. **`gemini-4-neon` (NYC DOE SOPM / Part 200 Coach):** Reconciles mandates vs. logs and translates findings into parent-level explanations and arguments to document.
 4. **`gemini-4-carbon` (5-Sigma Citation Auditor):** Cross-checks every claim against source pages to catch hallucinations.
-5. **`gemini-omni-1.2-flash` (`v1beta`):** Generates narrated parent-briefing video clips from reference slide cards.
+5. **`gemini-omni-1.2-flash` (`v1beta`):** Generates stitched animated parent-briefing video clips from reference slide cards.
 """
     )
 
     if st.button("📊 Run Live 5-Sigma Evaluation (Baseline vs. Multi-Model System)", type="primary"):
-        with st.spinner("Running adversarial PII suite, single-model baseline, and 3-model pipeline..."):
+        with st.spinner("Running adversarial PII suite, single-model baseline, and full pipeline..."):
             st.session_state["eval_summary"] = run_full_evaluation(include_local_unseen=True)
 
     eval_res = st.session_state.get("eval_summary")
