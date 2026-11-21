@@ -1,0 +1,6 @@
+pymupdf
+spacy
+google-genai>=2.30.1
+streamlit
+pillow
+python-dotenv

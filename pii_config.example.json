@@ -1,0 +1,10 @@
+{
+  "student_names": ["Jordan Sample", "Jordan"],
+  "parent_names": ["Alex Sample"],
+  "school_names": ["P.S. 999 Example School"],
+  "district_names": ["District 99", "NYC DOE"],
+  "provider_names": ["Dr. Taylor Reed"],
+  "ids": ["999999999", "IH-2026-0000"],
+  "dobs": ["01/15/2018", "January 15, 2018"],
+  "addresses": ["100 Example Avenue"]
+}
