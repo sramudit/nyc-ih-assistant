@@ -23,7 +23,8 @@ SAFE_ALLOWLIST = {
     "august", "september", "october", "november", "december",
     "monday", "tuesday", "wednesday", "thursday", "friday",
     "new york", "nyc", "doe", "oath", "hearing", "officer", "district",
-    "parent", "student", "school", "counsel", "exhibit", "page", "record"
+    "parent", "student", "school", "counsel", "exhibit", "page", "record",
+    "proceedings", "certification", "summary", "accommodations", "special"
 }
 
 SAFE_DOC_TYPE_TOKENS = {
@@ -142,7 +143,19 @@ class LocalRedactor:
                     )
                     self.blocklist_rules.append((spelled_pattern, tag, f"{key}_spelled"))
 
+        # (pattern, replacement, category, group_idx_to_blackout)
         self.regex_rules = [
+            # Phonetic spelling in transcripts: e.g. "R-A-M as in Mary, U-D as in dog, I-T"
+            (
+                re.compile(
+                    r"(?i)\b[A-Z](?:\s*[-−]\s*[A-Z]){1,12}\s+as\s+in\s+(?:\[[A-Z0-9_]+\]|[A-Za-z]+)"
+                    r"(?:[,;\s]+[A-Z](?:\s*[-−]\s*[A-Z]){0,12}(?:\s+as\s+in\s+(?:\[[A-Z0-9_]+\]|[A-Za-z]+))?)*"
+                ),
+                "[SPELLED_NAME_REDACTED]",
+                "regex_phonetic_spelling",
+                0,
+            ),
+            # Labeled DOBs
             (
                 re.compile(
                     r"(?i)\b(d\.?o\.?b\.?|date\s+of\s+birth|birth\s*date)\s*[:#\-]?\s*"
@@ -152,12 +165,13 @@ class LocalRedactor:
                 "regex_dob",
                 2,
             ),
+            # Case / OSIS / NYC ID across court-transcript line numbers too
             (
                 re.compile(
                     r"(?i)\b(osis|nyc\s*(?:student\s*)?id(?:\s*(?:no\.?|number|#))?|"
                     r"nysed\s*id|sesis\s*id|student\s*id|id\s*(?:no\.?|number|#)|"
                     r"oath\s*(?:case|index|docket)?\s*(?:no\.?|number|#)?|"
-                    r"case\s*(?:no\.?|number|#)|ih\s*(?:case\s*)?#?|"
+                    r"case(?:\s|\n|\d){0,15}?(?:no\.?|number|#)|ih\s*(?:case\s*)?#?|"
                     r"docket\s*(?:no\.?|number|#)|file\s*(?:no\.?|number|#)|"
                     r"medicaid\s*(?:id|#|no\.?)?|cin)\s*[:#\-]?\s*([A-Z0-9\-]{5,20})"
                 ),
@@ -165,32 +179,25 @@ class LocalRedactor:
                 "regex_id",
                 2,
             ),
+            # Standalone 9-digit NYC OSIS (with spaces or hyphens)
             (
                 re.compile(r"(?<!\d)\d{3}[ \t\-]{0,2}\d{3}[ \t\-]{0,2}\d{3}(?!\d)"),
                 "[REDACTED_ID]",
                 "regex_nyc_9digit_id",
                 0,
             ),
+            # NYC Public Schools like PS 452, P.S. 123, IS 45, HS 101
             (
-                re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
-                "[REDACTED_SSN]",
-                "regex_ssn",
+                re.compile(r"(?i)\b(?:P\.?S\.?|I\.?S\.?|M\.?S\.?|H\.?S\.?)\s*\d{1,4}[A-Za-z]?\b"),
+                "[SCHOOL]",
+                "regex_nyc_school",
                 0,
             ),
-            (
-                re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
-                "[REDACTED_EMAIL]",
-                "regex_email",
-                0,
-            ),
-            (
-                re.compile(
-                    r"(?<!\d)(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}(?!\d)"
-                ),
-                "[REDACTED_PHONE]",
-                "regex_phone",
-                0,
-            ),
+            # SSN, Email, Phone, Address, URLs
+            (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[REDACTED_SSN]", "regex_ssn", 0),
+            (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), "[REDACTED_EMAIL]", "regex_email", 0),
+            (re.compile(r"(?i)\b(?:https?://)?www\.[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), "[REDACTED_URL]", "regex_url", 0),
+            (re.compile(r"(?<!\d)(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}(?!\d)"), "[REDACTED_PHONE]", "regex_phone", 0),
             (
                 re.compile(
                     r"\b\d{1,5}\s+[A-Za-z0-9.\s]{2,30}\s+"
@@ -229,6 +236,18 @@ class LocalRedactor:
                 matched_strings.add(m.group(grp_idx))
             text, n = pattern.subn(repl, text)
             self._record(cat, n)
+
+        # Catch standalone ALL-CAPS 2-word names (e.g., court reporter signature lines)
+        def _caps_repl(m):
+            phrase = m.group(0)
+            words = phrase.split()
+            if any(w.lower() in SAFE_ALLOWLIST for w in words):
+                return phrase
+            matched_strings.add(phrase)
+            self._record("allcaps_person", 1)
+            return self._get_person_tag(phrase)
+
+        text = re.sub(r"(?m)^\s*([A-Z]{3,15}\s+[A-Z]{3,15})\s*$", _caps_repl, text)
 
         protected_spans = [
             (m.start(), m.end()) for m in re.finditer(r"\[[A-Z0-9_]+\]", text)
@@ -269,7 +288,6 @@ class LocalRedactor:
 def _ocr_and_redact_scanned_page(
     page: pymupdf.Page, redactor: LocalRedactor
 ) -> Tuple[str, bytes]:
-    """Render a scanned page to crisp white-background RGB, run RapidOCR, and draw black boxes."""
     pix = page.get_pixmap(dpi=150, colorspace=pymupdf.csRGB, alpha=False)
     png_bytes = pix.tobytes("png")
     pil_img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
@@ -289,7 +307,6 @@ def _ocr_and_redact_scanned_page(
         box, line_text, _score = item
         clean_line, matched = redactor.redact_text_with_matches(line_text)
         clean_lines.append(clean_line)
-
         if matched:
             xs = [pt[0] for pt in box]
             ys = [pt[1] for pt in box]
@@ -301,7 +318,6 @@ def _ocr_and_redact_scanned_page(
 
 
 def discover_pii_candidates(pdf_bytes_list: List[bytes]) -> Dict[str, List[str]]:
-    """Locally scan first 2 pages of uploaded PDFs (with OCR fallback) to suggest PII."""
     nlp = load_spacy_model()
     ocr = load_ocr_engine()
     people, schools, ids = set(), set(), set()
@@ -319,7 +335,7 @@ def discover_pii_candidates(pdf_bytes_list: List[bytes]) -> Dict[str, List[str]]
             chunks.append(txt)
         sample_text = "\n".join(chunks)
 
-        for m in re.finditer(r"\b(?:P\.?S\.?|I\.?S\.?|M\.?S\.?|H\.?S\.?)\s*\d{1,4}[A-Za-z]?\b", sample_text):
+        for m in re.finditer(r"(?i)\b(?:P\.?S\.?|I\.?S\.?|M\.?S\.?|H\.?S\.?)\s*\d{1,4}[A-Za-z]?\b", sample_text):
             schools.add(m.group(0).strip())
 
         for m in re.finditer(r"(?<!\d)\d{3}[ \t\-]{0,2}\d{3}[ \t\-]{0,2}\d{3}(?!\d)", sample_text):
@@ -345,7 +361,6 @@ def discover_pii_candidates(pdf_bytes_list: List[bytes]) -> Dict[str, List[str]]
 def redact_pdf_with_visuals(
     pdf_bytes: bytes, doc_id: str, redactor: LocalRedactor
 ) -> Tuple[str, bytes, int, int]:
-    """Scrub text (with local OCR fallback for scans) and burn black boxes into a PDF copy."""
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     redacted_pages = []
     ocr_pages_count = 0
@@ -382,7 +397,6 @@ def redact_pdf_with_visuals(
 
 
 def render_pdf_page_png(pdf_bytes: bytes, page_index: int) -> bytes:
-    """Render a single PDF page on a guaranteed white RGB background."""
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     page = doc[page_index]
     pix = page.get_pixmap(dpi=140, colorspace=pymupdf.csRGB, alpha=False)
