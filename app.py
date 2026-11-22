@@ -1,4 +1,3 @@
-import html
 import json
 from pathlib import Path
 import streamlit as st
@@ -28,253 +27,12 @@ st.set_page_config(
     page_title="NYC Impartial Hearing Assistant",
     page_icon="⚖️",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
-
-def inject_custom_css():
-    """Apply cohesive civic-tech typography, cards, pill tabs, and metric styling."""
-    st.markdown(
-        """
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
-        html, body, [class*="css"] {
-            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-        code, pre {
-            font-family: 'JetBrains Mono', monospace;
-        }
-        #MainMenu, footer { visibility: hidden; }
-        .block-container {
-            max-width: 1200px;
-            padding-top: 1.5rem;
-            padding-bottom: 3rem;
-        }
-
-        /* Hero Banner */
-        .hero-card {
-            background: linear-gradient(135deg, #EFF6FF 0%, #FFFFFF 65%, #F0FDF4 100%);
-            border: 1px solid #DBEAFE;
-            border-radius: 16px;
-            padding: 1.5rem 1.75rem;
-            margin-bottom: 1.25rem;
-            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
-        }
-        .hero-title {
-            font-size: 1.75rem;
-            font-weight: 700;
-            color: #0F172A;
-            margin: 0 0 0.35rem 0;
-            letter-spacing: -0.02em;
-        }
-        .hero-subtitle {
-            font-size: 0.96rem;
-            color: #475569;
-            margin: 0 0 0.85rem 0;
-            line-height: 1.5;
-        }
-        .pill-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-        .trust-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            font-size: 0.78rem;
-            font-weight: 600;
-            padding: 0.25rem 0.7rem;
-            border-radius: 999px;
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            color: #1E293B;
-        }
-        .trust-pill.blue { background: #EFF6FF; border-color: #BFDBFE; color: #1E40AF; }
-        .trust-pill.green { background: #F0FDF4; border-color: #BBF7D0; color: #166534; }
-
-        /* Pill Tabs */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 0.4rem;
-            background: #FFFFFF;
-            padding: 0.35rem;
-            border-radius: 12px;
-            border: 1px solid #E2E8F0;
-            margin-bottom: 1rem;
-        }
-        .stTabs [data-baseweb="tab"] {
-            border-radius: 8px;
-            padding: 0.5rem 0.95rem;
-            font-weight: 600;
-            font-size: 0.88rem;
-            color: #475569;
-            border: none;
-            background: transparent;
-        }
-        .stTabs [aria-selected="true"] {
-            background: #1D4ED8 !important;
-            color: #FFFFFF !important;
-        }
-
-        /* Metric Tiles */
-        [data-testid="stMetric"] {
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 12px;
-            padding: 0.9rem 1rem;
-            box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);
-        }
-
-        /* Custom Cards */
-        .ih-card {
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-left: 4px solid #1D4ED8;
-            border-radius: 12px;
-            padding: 1.1rem 1.25rem;
-            margin-bottom: 0.9rem;
-            box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);
-        }
-        .ih-card.high { border-left-color: #DC2626; }
-        .ih-card.watch { border-left-color: #D97706; }
-        .ih-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 0.75rem;
-            flex-wrap: wrap;
-            margin-bottom: 0.6rem;
-        }
-        .ih-card-title {
-            font-size: 1.05rem;
-            font-weight: 700;
-            color: #0F172A;
-            margin: 0;
-        }
-        .badge {
-            font-size: 0.74rem;
-            font-weight: 700;
-            padding: 0.2rem 0.55rem;
-            border-radius: 999px;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        .badge-high { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
-        .badge-watch { background: #FFFBEB; color: #B45309; border: 1px solid #FDE68A; }
-        .badge-cite {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.76rem;
-            background: #F1F5F9;
-            color: #334155;
-            padding: 0.18rem 0.55rem;
-            border-radius: 6px;
-            border: 1px solid #E2E8F0;
-        }
-        .ih-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-            margin: 0.65rem 0;
-        }
-        @media (max-width: 768px) {
-            .ih-grid { grid-template-columns: 1fr; }
-        }
-        .ih-label {
-            font-size: 0.78rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            color: #64748B;
-            margin-bottom: 0.2rem;
-        }
-        .ih-body {
-            font-size: 0.92rem;
-            color: #1E293B;
-            line-height: 1.5;
-        }
-        .ih-callout {
-            margin-top: 0.65rem;
-            padding: 0.65rem 0.85rem;
-            border-radius: 8px;
-            background: #F8FAFC;
-            border: 1px solid #E2E8F0;
-            font-size: 0.9rem;
-            color: #1E293B;
-        }
-        .ih-callout.action {
-            background: #F0FDF4;
-            border-color: #BBF7D0;
-            color: #14532D;
-        }
-
-        /* Architecture Cards */
-        .arch-card {
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 12px;
-            padding: 1rem 1.1rem;
-            height: 100%;
-            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
-        }
-        .arch-step {
-            font-size: 0.72rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            color: #1D4ED8;
-            letter-spacing: 0.04em;
-            margin-bottom: 0.25rem;
-        }
-        .arch-title {
-            font-size: 0.98rem;
-            font-weight: 700;
-            color: #0F172A;
-            margin-bottom: 0.35rem;
-        }
-        .arch-desc {
-            font-size: 0.86rem;
-            color: #475569;
-            line-height: 1.45;
-        }
-
-        /* Sidebar polish */
-        [data-testid="stSidebar"] {
-            border-right: 1px solid #E2E8F0;
-        }
-        .privacy-status {
-            background: #F0FDF4;
-            border: 1px solid #BBF7D0;
-            border-radius: 10px;
-            padding: 0.6rem 0.8rem;
-            font-size: 0.82rem;
-            color: #166534;
-            margin-bottom: 0.75rem;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-inject_custom_css()
-
-st.markdown(
-    """
-    <div class="hero-card">
-        <div class="hero-title">⚖️ NYC Impartial Hearing Assistant</div>
-        <div class="hero-subtitle">
-            Privacy-first record organizer &amp; parent coaching tool for NYC DOE Special Education Impartial Hearings.
-            Real PDFs are scrubbed 100% locally on-device before any AI analysis runs.
-        </div>
-        <div class="pill-row">
-            <span class="trust-pill green">🛡️ 100% On-Device PII Shield</span>
-            <span class="trust-pill blue">🧭 Decisions API (v1alpha)</span>
-            <span class="trust-pill blue">👁️ Multimodal + Part 200 Coach</span>
-            <span class="trust-pill">🔎 5-Sigma Citation Auditor</span>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
+st.title("⚖️ NYC Impartial Hearing Assistant")
+st.caption(
+    "Privacy-first record organizer & parent coaching tool for NYC DOE Special Education Impartial Hearings. "
+    "Real PDFs are scrubbed 100% locally before Gemini Decisions API & Gemini 4 analyze anonymized records."
 )
 
 defaults = {
@@ -336,92 +94,13 @@ def build_prep_markdown(pipeline_out: dict) -> str:
     return "\n".join(lines)
 
 
-def render_finding_card(item: dict):
-    is_high = item.get("priority") == "High"
-    card_cls = "high" if is_high else "watch"
-    badge_cls = "badge-high" if is_high else "badge-watch"
-    badge_txt = "High Priority" if is_high else "Watchout"
-    title = html.escape(str(item.get("title", "")))
-    citation = html.escape(str(item.get("citation", "")))
-    promised = html.escape(str(item.get("what_doe_promised_or_assumed", "")))
-    actual = html.escape(str(item.get("what_records_actually_show", "")))
-    why = html.escape(str(item.get("why_it_matters_nyc_rules", "")))
-
-    st.markdown(
-        f"""
-        <div class="ih-card {card_cls}">
-            <div class="ih-card-header">
-                <div>
-                    <span class="badge {badge_cls}">{badge_txt}</span>
-                    <div class="ih-card-title" style="margin-top:0.35rem;">{title}</div>
-                </div>
-                <span class="badge-cite">{citation}</span>
-            </div>
-            <div class="ih-grid">
-                <div>
-                    <div class="ih-label">What DOE Promised / Assumed</div>
-                    <div class="ih-body">{promised}</div>
-                </div>
-                <div>
-                    <div class="ih-label">What Records Actually Show</div>
-                    <div class="ih-body">{actual}</div>
-                </div>
-            </div>
-            <div class="ih-callout">
-                <strong>Why this matters (NYC DOE / IDEA):</strong> {why}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_argument_card(idx: int, arg: dict):
-    title = html.escape(str(arg.get("argument_title", "")))
-    citation = html.escape(str(arg.get("citation", "")))
-    explanation = html.escape(str(arg.get("plain_english_explanation", "")))
-    next_step = html.escape(str(arg.get("what_to_document_and_share", "")))
-
-    st.markdown(
-        f"""
-        <div class="ih-card">
-            <div class="ih-card-header">
-                <div class="ih-card-title">{idx}. {title}</div>
-                <span class="badge-cite">{citation}</span>
-            </div>
-            <div class="ih-body" style="margin-bottom:0.5rem;">
-                <strong>How to explain this simply:</strong> {explanation}
-            </div>
-            <div class="ih-callout action">
-                <strong>📋 What to document &amp; gather next:</strong> {next_step}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 # Sidebar: Local PII Intake Form
 with st.sidebar:
-    st.markdown("### 🛡️ Local Privacy Config")
+    st.header("🛡️ Local Privacy Config")
+    st.caption("Just type what you know below (no file needed) — stays strictly on your computer.")
 
-    active_terms_count = sum(
-        len(split_csv(st.session_state[f]))
-        for f in (
-            "student_names", "parent_names", "school_names",
-            "district_names", "provider_names", "ids", "dobs", "addresses", "extra_terms",
-        )
-    )
-    cfg_exists = Path("pii_config.json").exists()
-    st.markdown(
-        f'<div class="privacy-status"><strong>On-Device Only:</strong> {active_terms_count} scrub term(s) active'
-        + (" · <code>pii_config.json</code> found" if cfg_exists else "")
-        + "</div>",
-        unsafe_allow_html=True,
-    )
-
-    if cfg_exists:
-        if st.button("📂 Load Local pii_config.json", width="stretch"):
+    if Path("pii_config.json").exists():
+        if st.button("📂 Load My Local pii_config.json", width="stretch"):
             cfg = json.loads(Path("pii_config.json").read_text(encoding="utf-8"))
             for field in (
                 "student_names", "parent_names", "school_names",
@@ -430,25 +109,19 @@ with st.sidebar:
                 st.session_state[field] = ", ".join(cfg.get(field, []))
             st.rerun()
 
-    with st.expander("People & Schools", expanded=True):
-        st.session_state["student_names"] = st.text_input("Student Name(s)", value=st.session_state["student_names"], placeholder="e.g., Maya Chen")
-        st.session_state["parent_names"] = st.text_input("Parent / Guardian Name(s)", value=st.session_state["parent_names"], placeholder="e.g., Grace Chen")
-        st.session_state["school_names"] = st.text_input("School Name(s)", value=st.session_state["school_names"], placeholder="e.g., Tech High School")
-        st.session_state["district_names"] = st.text_input("District / Agency", value=st.session_state["district_names"])
-        st.session_state["provider_names"] = st.text_input("Provider / Evaluator Name(s)", value=st.session_state["provider_names"], placeholder="e.g., Dr. Avery Patel")
-
-    with st.expander("IDs, Dates & Addresses", expanded=False):
-        st.session_state["ids"] = st.text_input("Student / OSIS / Case IDs", value=st.session_state["ids"], placeholder="e.g., 901 442 817")
-        st.session_state["dobs"] = st.text_input("Date(s) of Birth", value=st.session_state["dobs"], placeholder="e.g., 04/12/2012")
-        st.session_state["addresses"] = st.text_input("Street Address(es)", value=st.session_state["addresses"], placeholder="e.g., 100 Example Avenue")
-
-    with st.expander("Extra Words to Black Out", expanded=False):
-        st.session_state["extra_terms"] = st.text_area(
-            "Additional terms",
-            value=st.session_state["extra_terms"],
-            placeholder="Caught a typo, sibling name, or employer in preview? Add here...",
-            label_visibility="collapsed",
-        )
+    st.session_state["student_names"] = st.text_input("Student Name(s)", value=st.session_state["student_names"], placeholder="e.g., Maya Chen")
+    st.session_state["parent_names"] = st.text_input("Parent / Guardian Name(s)", value=st.session_state["parent_names"], placeholder="e.g., Grace Chen")
+    st.session_state["school_names"] = st.text_input("School Name(s)", value=st.session_state["school_names"], placeholder="e.g., Tech High School")
+    st.session_state["district_names"] = st.text_input("District / Agency", value=st.session_state["district_names"])
+    st.session_state["provider_names"] = st.text_input("Provider / Evaluator Name(s)", value=st.session_state["provider_names"], placeholder="e.g., Dr. Avery Patel")
+    st.session_state["ids"] = st.text_input("Student / OSIS / Case IDs", value=st.session_state["ids"], placeholder="e.g., 901 442 817")
+    st.session_state["dobs"] = st.text_input("Date(s) of Birth", value=st.session_state["dobs"], placeholder="e.g., 04/12/2012")
+    st.session_state["addresses"] = st.text_input("Street Address(es)", value=st.session_state["addresses"], placeholder="e.g., 100 Example Avenue")
+    st.session_state["extra_terms"] = st.text_area(
+        "Extra Words to Black Out",
+        value=st.session_state["extra_terms"],
+        placeholder="Caught a typo, sibling name, or employer in preview? Add here...",
+    )
 
     def build_config_dict():
         return {
@@ -463,7 +136,7 @@ with st.sidebar:
             "extra_terms": split_csv(st.session_state["extra_terms"]),
         }
 
-    if st.button("💾 Save Entries Locally", width="stretch"):
+    if st.button("💾 Save Entries Locally for Next Time", width="stretch"):
         Path("pii_config.json").write_text(
             json.dumps(build_config_dict(), indent=2), encoding="utf-8"
         )
@@ -471,11 +144,11 @@ with st.sidebar:
 
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Local Privacy Shield",
-    "What We Found",
-    "Arguments & OATH Prep",
-    "Parent Briefing Video",
-    "5-Sigma Reliability",
+    "1️⃣ Local Privacy Shield",
+    "2️⃣ What We Found (Parent View)",
+    "3️⃣ Arguments & OATH Prep",
+    "4️⃣ Parent Briefing Video",
+    "5️⃣ 5-Sigma Reliability & Eval",
 ])
 
 # ==================== TAB 1: LOCAL PRIVACY SHIELD ====================
@@ -484,33 +157,30 @@ with tab1:
 
     demo_col, up_col = st.columns([1, 2])
     with demo_col:
-        with st.container(border=True):
-            st.markdown("**Testing / Judge Demo?**")
-            st.caption("Load a synthetic NYC IEP + therapy log + transcript packet.")
-            if st.button("🧪 Load Realistic NYC Demo Packet", width="stretch"):
-                st.session_state["demo_loaded_files"] = build_synthetic_demo_packet()
-                st.session_state["student_names"] = "Maya Chen"
-                st.session_state["parent_names"] = "Grace Chen"
-                st.session_state["school_names"] = "Tech High School"
-                st.session_state["district_names"] = "District 99, NYC DOE"
-                st.session_state["provider_names"] = "Dr. Avery Patel"
-                st.session_state["ids"] = "901 442 817, 901442817, 311994"
-                st.session_state["dobs"] = "04/12/2012"
-                st.session_state["addresses"] = "100 Example Avenue"
-                st.session_state["redacted_docs"] = []
-                st.session_state["pipeline_output"] = None
-                st.session_state["generated_videos"] = {}
-                st.session_state["omni_stitched_video"] = None
-                st.session_state["full_3min_video"] = None
-                st.rerun()
+        st.markdown("**Testing / Judge Demo?**")
+        if st.button("🧪 Load Realistic NYC Demo Packet", width="stretch"):
+            st.session_state["demo_loaded_files"] = build_synthetic_demo_packet()
+            st.session_state["student_names"] = "Maya Chen"
+            st.session_state["parent_names"] = "Grace Chen"
+            st.session_state["school_names"] = "Tech High School"
+            st.session_state["district_names"] = "District 99, NYC DOE"
+            st.session_state["provider_names"] = "Dr. Avery Patel"
+            st.session_state["ids"] = "901 442 817, 901442817, 311994"
+            st.session_state["dobs"] = "04/12/2012"
+            st.session_state["addresses"] = "100 Example Avenue"
+            st.session_state["redacted_docs"] = []
+            st.session_state["pipeline_output"] = None
+            st.session_state["generated_videos"] = {}
+            st.session_state["omni_stitched_video"] = None
+            st.session_state["full_3min_video"] = None
+            st.rerun()
 
     with up_col:
-        with st.container(border=True):
-            uploaded_files = st.file_uploader(
-                "Upload your IEP, Neuropsych, Service Logs, or Transcript PDFs",
-                type=["pdf"],
-                accept_multiple_files=True,
-            )
+        uploaded_files = st.file_uploader(
+            "Or upload your own IEP, Neuropsych, Service Logs, or Transcript PDFs",
+            type=["pdf"],
+            accept_multiple_files=True,
+        )
 
     if uploaded_files:
         active_files = [(f.name, f.getvalue()) for f in uploaded_files]
@@ -567,30 +237,26 @@ with tab1:
             f"Total redactions applied: {sum(st.session_state['audit_counts'].values())}"
         )
 
-        ctrl1, ctrl2, ctrl3 = st.columns([2, 1, 1])
         doc_choices = [f"{d['safe_name']} ({d['page_count']} pages)" for d in st.session_state["redacted_docs"]]
-        with ctrl1:
-            selected_idx = st.selectbox("Inspect Document", range(len(doc_choices)), format_func=lambda i: doc_choices[i])
+        selected_idx = st.selectbox("Inspect Document", range(len(doc_choices)), format_func=lambda i: doc_choices[i])
         selected_doc = st.session_state["redacted_docs"][selected_idx]
-        with ctrl2:
-            page_num = st.number_input("Page", min_value=1, max_value=selected_doc["page_count"], value=1)
-        with ctrl3:
-            st.markdown("<div style='height:1.7rem;'></div>", unsafe_allow_html=True)
-            st.download_button(
-                "⬇️ Download Blacked-Out PDF",
-                data=selected_doc["blacked_pdf"],
-                file_name=f"{selected_doc['safe_name']}_BLACKED_OUT.pdf",
-                mime="application/pdf",
-                width="stretch",
-            )
 
         if selected_doc["ocr_pages"] > 0:
             st.info(f"🔍 Local RapidOCR processed {selected_doc['ocr_pages']} scanned page(s) in this document.")
 
+        st.download_button(
+            "⬇️ Download Blacked-Out PDF",
+            data=selected_doc["blacked_pdf"],
+            file_name=f"{selected_doc['safe_name']}_BLACKED_OUT.pdf",
+            mime="application/pdf",
+        )
+
+        page_num = st.number_input("Page to inspect", min_value=1, max_value=selected_doc["page_count"], value=1)
+
         left_col, right_col = st.columns(2)
         with left_col:
             st.markdown("**Blacked-Out PDF View**")
-            with st.container(height=440, border=True):
+            with st.container(height=440):
                 png_bytes = render_pdf_page_png(selected_doc["blacked_pdf"], page_num - 1)
                 st.image(png_bytes, width="stretch")
 
@@ -623,25 +289,20 @@ with tab1:
                             f"{d['doc_id']} | PAGE {p_idx + 1}",
                             render_pdf_page_png(d["blacked_pdf"], p_idx),
                         ))
-            with st.status("Running Multi-Model Analysis & 5-Sigma Audit...", expanded=True) as status:
-                st.write("🧭 Triaging records with Decisions API (`gemini-decision-1`)...")
-                st.write("👁️ Inspecting redacted page images with Gemini 4 Hydrogen...")
-                st.write("🧠 Synthesizing NYC DOE Part 200 findings with Gemini 4 Neon...")
-                st.write("🔎 Auditing every citation with Gemini 4 Carbon...")
+            with st.spinner("Running Decisions API -> Hydrogen (Visual PDF) -> Neon (Coach) -> Carbon (5-Sigma Audit)..."):
                 out = analyze_hearing_records(combined_text, page_images=key_images)
                 st.session_state["pipeline_output"] = out
                 st.session_state["generated_videos"] = {}
                 st.session_state["omni_stitched_video"] = None
                 st.session_state["full_3min_video"] = None
-                status.update(label="Analysis & 5-Sigma Citation Audit complete!", state="complete", expanded=False)
-            st.success("Open **What We Found**, **Arguments & OATH Prep**, and **Parent Briefing Video** above.")
+            st.success("Analysis & 5-Sigma Citation Audit complete! Open Tabs 2, 3, and 4.")
 
 
 # ==================== TAB 2: WHAT WE FOUND (PARENT VIEW) ====================
 with tab2:
     out = st.session_state.get("pipeline_output")
     if not out:
-        st.info("Scrub and analyze records in **Local Privacy Shield** first.")
+        st.info("Scrub and analyze records in Tab 1 first.")
     else:
         analysis = out["analysis"]
         carbon = out["carbon_audit"]
@@ -652,7 +313,7 @@ with tab2:
         m1.metric("Priority Gaps Found", len(analysis.get("priority_findings", [])))
         m2.metric("Decisions + Visual", f"{round(tel.get('decisions_api_s', 0) + tel.get('hydrogen_visual_s', 0), 1)}s")
         m3.metric("NYC DOE Coach (Neon)", f"{tel.get('neon_reasoning_s', 0)}s")
-        m4.metric("5-Sigma Citation Score", f"{carbon.get('verification_score_pct', 0)}%")
+        m4.metric("5-Sigma Citation Score (Carbon)", f"{carbon.get('verification_score_pct', 0)}%")
 
         st.info(f"**Plain-English Overview:** {analysis.get('case_snapshot', '')}")
 
@@ -681,14 +342,23 @@ with tab2:
 
         st.subheader("What We Found in Your Records")
         for item in analysis.get("priority_findings", []):
-            render_finding_card(item)
+            badge = "🔴 HIGH PRIORITY" if item.get("priority") == "High" else "🟡 WATCHOUT"
+            with st.container(border=True):
+                st.markdown(f"### {badge} — {item.get('title')}")
+                st.caption(f"Source Citation: `{item.get('citation')}`")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown(f"**What the DOE promised / assumed:**\n\n{item.get('what_doe_promised_or_assumed')}")
+                with c2:
+                    st.markdown(f"**What the records actually show:**\n\n{item.get('what_records_actually_show')}")
+                st.markdown(f"**Why this matters under NYC DOE / IDEA rules:** {item.get('why_it_matters_nyc_rules')}")
 
 
 # ==================== TAB 3: ARGUMENTS & OATH PREP ====================
 with tab3:
     out = st.session_state.get("pipeline_output")
     if not out:
-        st.info("Scrub and analyze records in **Local Privacy Shield** first.")
+        st.info("Scrub and analyze records in Tab 1 first.")
     else:
         analysis = out["analysis"]
         st.warning(
@@ -706,7 +376,11 @@ with tab3:
 
         st.subheader("Arguments & Points to Document and Share")
         for idx, arg in enumerate(analysis.get("arguments_to_document", []), start=1):
-            render_argument_card(idx, arg)
+            with st.container(border=True):
+                st.markdown(f"### {idx}. {arg.get('argument_title')}")
+                st.caption(f"Source Citation: `{arg.get('citation')}`")
+                st.markdown(f"**How to explain this simply:** {arg.get('plain_english_explanation')}")
+                st.success(f"📋 **What to document & gather next:** {arg.get('what_to_document_and_share')}")
 
         st.subheader("NYC OATH Pre-Hearing Readiness Checklist")
         oath = analysis.get("oath_readiness", {})
@@ -731,61 +405,61 @@ with tab4:
 
     out = st.session_state.get("pipeline_output")
     if not out:
-        st.info("Run the Analysis in **Local Privacy Shield** first.")
+        st.info("Run the Analysis in Tab 1 first.")
     else:
-        with st.container(border=True):
-            st.markdown("### ✨ Pure Gemini Omni 1.2 Flash Multi-Clip Stitcher")
-            o_col1, o_col2 = st.columns(2)
-            with o_col1:
-                num_omni_clips = st.selectbox(
-                    "Number of 14s Omni Clips to Stitch",
-                    [4, 6, 9, 12],
-                    index=0,
-                    format_func=lambda n: f"{n} clips (~{round(n * 14 / 60, 1)} min)",
+        st.markdown("### ✨ Option A: Pure Gemini Omni 1.2 Flash Multi-Clip Stitcher")
+        o_col1, o_col2 = st.columns(2)
+        with o_col1:
+            num_omni_clips = st.selectbox(
+                "Number of 14s Omni Clips to Stitch",
+                [4, 6, 9, 12],
+                index=0,
+                format_func=lambda n: f"{n} clips (~{round(n * 14 / 60, 1)} min)",
+            )
+        with o_col2:
+            omni_stitch_res = st.selectbox("Stitch Resolution", ["360p", "720p"], index=0, key="omni_stitch_res")
+
+        if st.button(f"🎬 Generate & Stitch {num_omni_clips} Omni 1.2 Flash Clips", type="primary"):
+            status_omni = st.empty()
+            try:
+                status_omni.info(f"Drafting {num_omni_clips} crisp 14s visual beats with Gemini 4 Neon...")
+                beats = generate_omni_storyboard_beats(out["analysis"], num_clips=num_omni_clips)
+                stitched_mp4, _ = build_stitched_omni_video(
+                    beats,
+                    resolution=omni_stitch_res,
+                    duration_seconds=14,
+                    progress_cb=lambda msg: status_omni.info(msg),
                 )
-            with o_col2:
-                omni_stitch_res = st.selectbox("Stitch Resolution", ["360p", "720p"], index=0, key="omni_stitch_res")
+                st.session_state["omni_stitched_video"] = stitched_mp4
+                st.session_state["omni_stitched_check"] = ""
+                status_omni.success(f"✅ Stitched {len(beats)} Gemini Omni 1.2 Flash clips!")
+            except Exception as exc:
+                status_omni.error(f"Omni stitch failed: {exc}")
 
-            if st.button(f"🎬 Generate & Stitch {num_omni_clips} Omni 1.2 Flash Clips", type="primary"):
-                status_omni = st.empty()
-                try:
-                    status_omni.info(f"Drafting {num_omni_clips} crisp 14s visual beats with Gemini 4 Neon...")
-                    beats = generate_omni_storyboard_beats(out["analysis"], num_clips=num_omni_clips)
-                    stitched_mp4, _ = build_stitched_omni_video(
-                        beats,
-                        resolution=omni_stitch_res,
-                        duration_seconds=14,
-                        progress_cb=lambda msg: status_omni.info(msg),
-                    )
-                    st.session_state["omni_stitched_video"] = stitched_mp4
-                    st.session_state["omni_stitched_check"] = ""
-                    status_omni.success(f"✅ Stitched {len(beats)} Gemini Omni 1.2 Flash clips!")
-                except Exception as exc:
-                    status_omni.error(f"Omni stitch failed: {exc}")
+        if st.session_state.get("omni_stitched_video"):
+            st.video(st.session_state["omni_stitched_video"])
+            c_dl, c_ver = st.columns(2)
+            with c_dl:
+                st.download_button(
+                    "⬇️ Download Pure Omni Stitched Video (.mp4)",
+                    data=st.session_state["omni_stitched_video"],
+                    file_name="omni_parent_briefing_stitched.mp4",
+                    mime="video/mp4",
+                    type="primary",
+                )
+            with c_ver:
+                if st.button("🔎 Verify Stitched Video with Gemini 4 Hydrogen", key="chk_stitched_omni"):
+                    with st.spinner("Gemini 4 Hydrogen watching stitched video..."):
+                        st.session_state["omni_stitched_check"] = verify_video_with_gemini4(
+                            st.session_state["omni_stitched_video"],
+                            out["analysis"].get("case_snapshot", ""),
+                        )
+            if st.session_state.get("omni_stitched_check"):
+                st.info(st.session_state["omni_stitched_check"])
 
-            if st.session_state.get("omni_stitched_video"):
-                st.video(st.session_state["omni_stitched_video"])
-                c_dl, c_ver = st.columns(2)
-                with c_dl:
-                    st.download_button(
-                        "⬇️ Download Pure Omni Stitched Video (.mp4)",
-                        data=st.session_state["omni_stitched_video"],
-                        file_name="omni_parent_briefing_stitched.mp4",
-                        mime="video/mp4",
-                        type="primary",
-                        width="stretch",
-                    )
-                with c_ver:
-                    if st.button("🔎 Verify Stitched Video with Gemini 4 Hydrogen", key="chk_stitched_omni", width="stretch"):
-                        with st.spinner("Gemini 4 Hydrogen watching stitched video..."):
-                            st.session_state["omni_stitched_check"] = verify_video_with_gemini4(
-                                st.session_state["omni_stitched_video"],
-                                out["analysis"].get("case_snapshot", ""),
-                            )
-                if st.session_state.get("omni_stitched_check"):
-                    st.info(st.session_state["omni_stitched_check"])
+        st.divider()
 
-        with st.expander("Comprehensive ~3-Minute Narrated Guide (Omni Intro + 3x1-Min Segments)"):
+        with st.expander("Option B: Build Comprehensive ~3-Minute Narrated Guide (Omni Intro + 3x1-Min Segments)"):
             include_omni = st.checkbox("Include Gemini Omni 1.2 Flash Animated Intro (~12s)", value=True)
             if st.button("🎬 Build Comprehensive 3-Minute Overview Video"):
                 status_box = st.empty()
@@ -827,31 +501,18 @@ with tab4:
 # ==================== TAB 5: 5-SIGMA RELIABILITY & EVAL ====================
 with tab5:
     st.subheader("5-Sigma Engineering: Real-World Failures Caught & Baseline Benchmark")
+    st.markdown(
+        """
+**Multi-Model Architecture (Each Model Has a Clear Job):**
+0. **Decisions API (`gemini-decision-1`, `v1alpha`):** Evaluates calibrated `ChoiceQuestion` & `ScoreQuestion` rubrics for document routing, Part 200 triggers, and 0–3 FAPE risk scoring.
+1. **Local Privacy Layer (`PyMuPDF` + `spaCy` + `RapidOCR`):** Strips minor PII, spaced OSIS IDs (`xxx xxx xxx`), court line-split case numbers, and phonetic spellings (`R-A-M as in...`) *before* cloud calls.
+2. **`gemini-4-hydrogen` (Multimodal PDF & Video Inspector):** Reads blacked-out PDF page images directly to spot visual checkbox contradictions (e.g., `BIP: Yes` vs `No`) and verifies generated video clips.
+3. **`gemini-4-neon` (NYC DOE SOPM / Part 200 Coach):** Reconciles mandates vs. logs and translates findings into parent-level explanations and arguments to document.
+4. **`gemini-4-carbon` (5-Sigma Citation Auditor):** Cross-checks every claim against source pages to catch hallucinations.
+5. **`gemini-omni-1.2-flash` (`v1beta`):** Generates stitched animated parent-briefing video clips from reference slide cards.
+"""
+    )
 
-    arch_layers = [
-        ("Stage 0 · Triage", "Decisions API (gemini-decision-1)", "Evaluates calibrated ChoiceQuestion & ScoreQuestion rubrics on v1alpha for routing, Part 200 triggers, and 0–3 FAPE risk."),
-        ("Stage 1 · Privacy", "Local Shield (PyMuPDF + spaCy + RapidOCR)", "Strips minor PII, spaced OSIS IDs, court line-split case numbers, and phonetic spellings before cloud calls."),
-        ("Stage 2 · Vision", "Gemini 4 Hydrogen", "Reads blacked-out PDF page images directly to spot visual checkbox contradictions and verifies generated video clips."),
-        ("Stage 3 · Coach", "Gemini 4 Neon", "Reconciles NYC DOE SOPM / Part 200 mandates against service logs into parent-level explanations and arguments."),
-        ("Stage 4 · Auditor", "Gemini 4 Carbon", "Independently cross-checks every claim against source pages to catch citation hallucinations."),
-        ("Stage 5 · Briefing", "Gemini Omni 1.2 Flash (v1beta)", "Generates stitched animated parent-briefing video clips from clean Pillow reference slide cards."),
-    ]
-    for row_start in range(0, len(arch_layers), 3):
-        cols = st.columns(3)
-        for col, (step, title, desc) in zip(cols, arch_layers[row_start:row_start + 3]):
-            with col:
-                st.markdown(
-                    f"""
-                    <div class="arch-card">
-                        <div class="arch-step">{step}</div>
-                        <div class="arch-title">{title}</div>
-                        <div class="arch-desc">{desc}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-    st.markdown("<div style='height:1rem;'></div>", unsafe_allow_html=True)
     if st.button("📊 Run Live 5-Sigma Evaluation (Baseline vs. Multi-Model System)", type="primary"):
         with st.spinner("Running adversarial PII suite, single-model baseline, and full pipeline..."):
             st.session_state["eval_summary"] = run_full_evaluation(include_local_unseen=True)
