@@ -44,14 +44,14 @@
     },
     {
       "Metric": "Citation Grounding / Verification Score",
-      "Baseline (Single Model Unaudited)": "100.0% format match (unaudited)",
-      "5-Sigma Pipeline (Carbon Auditor)": "33% verified"
+      "Baseline (Single Model Unaudited)": "0.0% format match (unaudited)",
+      "5-Sigma Pipeline (Carbon Auditor)": "17% verified"
     },
     {
       "Metric": "Total Runtime",
-      "Baseline (Single Model)": "11.5s",
-      "5-Sigma Pipeline (3 Models)": "59.4s"
+      "Baseline (Single Model)": "11.8s",
+      "5-Sigma Pipeline (3 Models)": "66.8s"
     }
   ],
-  "carbon_auditor_verdict": "All underlying facts, dates, dollar amounts ($6,500 and $360/hr), IQ/academic scores, and hour counts accurately reflect the scrubbed records without fabrication. However, the draft relies on single-page citations for multi-page, multi-document claims, resulting in widespread citation omissions across all six items."
+  "carbon_auditor_verdict": "While all underlying numerical facts, dates, and quotes exist in the record, 5 of the 6 claims suffer from incomplete single-page citations that omit the pages where key supporting facts appear, plus one speaker attribution error."
 }
